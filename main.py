@@ -112,7 +112,7 @@ def main_loop(max_actions: int = 10):
             + "\n".join(document["executive_summary"])
             + "\n\nWhat is the most interesting action to take next?"
             + ' Respond in json format only with the key "action" containing one of the following options:'
-            + " [propose_section, write_section, edit_section, generate_figure]"
+            + " [propose_section, write_section, edit_section, generate_figure, edit_figure]"
         )
         action = generate_text(action_prompt, json_mode=True)
         match action:
@@ -120,7 +120,7 @@ def main_loop(max_actions: int = 10):
                 section_title = generate_text(
                     "Executive Summary:\n"
                     + "\n".join(document["executive_summary"])
-                    + "\n\nPropose a new section title for a paper on FOMO."
+                    + "\n\nPropose a new section title for the paper."
                 )
                 document["sections"].append({"title": section_title, "content": ""})
                 update_executive_summary(f"Proposed section: {section_title}")
@@ -170,7 +170,7 @@ def main_loop(max_actions: int = 10):
                     + "\n".join(document["executive_summary"])
                     + "\n\nYou'll be given a list of currently filled section titles."
                     + " Tell me in json format only which title section should be edited next."
-                    + f"\n\nList: {", ".join(empty_sections)}",
+                    + f"\n\nList: {", ".join(filled_sections)}",
                     json_mode=True
                 )
                 title_index = None
@@ -191,7 +191,17 @@ def main_loop(max_actions: int = 10):
                 )
             case "generate_figure":
                 figure_image_url, caption = generate_figure(
-                    "Generate a figure about FOMO."
+                    "Generate a figure about FOMO.",
+                    1,
+                    image_dir
+                )
+                document["sections"].append({"title": section_title, "content": ""})
+                print(f"Generated figure URL: {figure_image_url}\nCaption: {caption}")
+            case "edit_figure":
+                figure_image_url, caption = generate_figure(
+                    "Generate a figure about FOMO.",
+                    1,
+                    image_dir
                 )
                 print(f"Generated figure URL: {figure_image_url}\nCaption: {caption}")
             case _:
