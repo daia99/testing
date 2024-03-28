@@ -18,14 +18,24 @@ system_prompt
 """
 
 
-def generate_text(prompt: str, engine: str = "gpt-3.5-turbo") -> str:
-    completion = client.chat.completions.create(
-        model=engine,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
+def generate_text(prompt: str, json_mode: bool=False, engine: str = "gpt-3.5-turbo-0125") -> str:
+    if json_mode:
+        completion = client.chat.completions.create(
+            model=engine,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+    else:
+        completion = client.chat.completions.create(
+            model=engine,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
     return completion.choices[0].message.content
 
 
@@ -38,7 +48,7 @@ def generate_figure(prompt: str, fig_n: int, image_dir: str) -> Tuple[str, str]:
         # quality="hd", # hd
         response_format="url",
     )
-    
+
     # save the image
     generated_image_name = f"figure_{fig_n}.png"
     generated_image_filepath = os.path.join(image_dir, generated_image_name)
@@ -98,35 +108,83 @@ def main_loop(max_actions: int = 10):
     while action_count < max_actions:
         action_count += 1
         action_prompt = (
-            system_prompt
-            + "\n\nExecutive Summary:\n"
+            "Executive Summary:\n"
             + "\n".join(document["executive_summary"])
             + "\n\nWhat is the most interesting action to take next?"
+            + ' Respond in json format only with the key "action" containing one of the following options:'
+            + " [propose_section, write_section, edit_section, generate_figure]"
         )
-        action = generate_text(action_prompt)
+        action = generate_text(action_prompt, json_mode=True)
         match action:
             case "propose_section":
                 section_title = generate_text(
-                    "Propose a section title for a paper on FOMO."
+                    "Executive Summary:\n"
+                    + "\n".join(document["executive_summary"])
+                    + "\n\nPropose a new section title for a paper on FOMO."
                 )
                 document["sections"].append({"title": section_title, "content": ""})
                 update_executive_summary(f"Proposed section: {section_title}")
             case "write_section" if document["sections"]:
-                section_index = random.randint(0, len(document["sections"]) - 1)
-                if document["sections"][section_index]["content"]:
+                # Decide on which section to choose to write, out of empty ones
+                empty_sections = [
+                    document["sections"][i]["title"]
+                    for i in range(len(document["sections"]))
+                    if document["sections"][i]["content"] == ""
+                ]
+                # Create a prompt out of the list of empty_sections, and have the output of generate_text propose the section to write next
+                proposal_title = generate_text(
+                    "Executive Summary:\n"
+                    + "\n".join(document["executive_summary"])
+                    + "\n\nYou'll be given a list of currently empty section titles."
+                    + " Tell me in json format only which title section should be filled in next."
+                    + f"\n\nList: {", ".join(empty_sections)}",
+                    json_mode=True
+                )
+                title_index = None
+                for section_index in range(len(document["sections"])):
+                    if document["sections"][section_index]["title"] == proposal_title:
+                        title_index = section_index
+                if title_index is None:
+                    # Skip if invalid title chosen
                     continue
-                prompt = f"Write content for the section titled '{document['sections'][section_index]['title']}':"
-                content = generate_text(prompt)
-                document["sections"][section_index]["content"] = content
+                # Generate the section text
+                content = generate_text(
+                    "Executive Summary:\n"
+                    + "\n".join(document["executive_summary"])
+                    + f"\n\nWrite content for the section titled '{proposal_title}'. Generate the LaTeX code for it."
+                )
+                document["sections"][title_index]["content"] = content
                 update_executive_summary(
                     f"Wrote content for section: {document['sections'][section_index]['title']}.\nContent: {content}"
                 )
             case "edit_section" if document["sections"]:
-                section_index = random.randint(0, len(document["sections"]) - 1)
-                if not document["sections"][section_index]["content"]:
+                # Decide on which section to choose to edit, out of filled ones
+                filled_sections = [
+                    document["sections"][i]["title"]
+                    for i in range(len(document["sections"]))
+                    if document["sections"][i]["content"] != ""
+                ]
+                # Create a prompt out of the list of empty_sections, and have the output of generate_text propose the section to write next
+                proposal_title = generate_text(
+                    "Executive Summary:\n"
+                    + "\n".join(document["executive_summary"])
+                    + "\n\nYou'll be given a list of currently filled section titles."
+                    + " Tell me in json format only which title section should be edited next."
+                    + f"\n\nList: {", ".join(empty_sections)}",
+                    json_mode=True
+                )
+                title_index = None
+                for section_index in range(len(document["sections"])):
+                    if document["sections"][section_index]["title"] == proposal_title:
+                        title_index = section_index
+                if title_index is None:
+                    # Skip if invalid title chosen
                     continue
-                prompt = f"Edit this section: {document['sections'][section_index]['content']}"
-                edited_content = generate_text(prompt)
+                edited_content = generate_text(
+                    "Executive Summary:\n"
+                    + "\n".join(document["executive_summary"])
+                    + f"\n\nEdit this section following inspiration from the executive summary: {document['sections'][section_index]['content']}."
+                )
                 document["sections"][section_index]["content"] = edited_content
                 update_executive_summary(
                     f"Edited section: {document['sections'][section_index]['title']}.\nContent: {edited_content}"
